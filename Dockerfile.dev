@@ -1,12 +1,21 @@
-FROM node:10.6.0 as node
-FROM ruby:2.5.1
+FROM node:11.12.0 as node
+FROM ruby:2.6.1
 
 ENV LANG C.UTF-8
+ENV BUILD_PACKAGES="ruby-dev bash" \
+    DEV_PACKAGES="libxml2-dev libxslt-dev tzdata" \
+    RUBY_PACKAGES="ruby-json nodejs"
 
-RUN apt-get update -qq && \
+RUN apt-get update -qq -y && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    wget \
+    ca-certificates \
+    $BUILD_PACKAGES \
+    $DEV_PACKAGES \
+    $RUBY_PACKAGES \
     libfontconfig1 && \
     rm -rf /var/lib/apt/lists/*
 
@@ -19,20 +28,42 @@ RUN wget https://github.com/progrium/entrykit/releases/download/v${ENTRYKIT_VERS
     && chmod +x /bin/entrykit \
     && entrykit --symlink
 
-ENV YARN_VERSION 1.7.0
+
+ENV YARN_VERSION 1.15.2
 
 COPY --from=node /opt/yarn-v$YARN_VERSION /opt/yarn
 COPY --from=node /usr/local/bin/node /usr/local/bin/
 
-RUN ln -s /opt/yarn/bin/yarn /usr/local/bin/yarn \
-    && ln -s /opt/yarn/bin/yarnpkg /usr/local/bin/yarnpkg
+RUN ln -fs /opt/yarn/bin/yarn /usr/local/bin/yarn \
+    && ln -fs /opt/yarn/bin/yarnpkg /usr/local/bin/yarnpkg
 
-RUN mkdir /app
+ENV BUNDLE_JOBS=4 \
+    APP_DIR=/app/ \
+    BUNDLE_PATH=/app/vendor/bundle/
 
-WORKDIR /app
+RUN mkdir $APP_DIR
 
+WORKDIR $APP_DIR
+
+COPY ./Gemfile $APP_DIR
+COPY ./Gemfile.lock $APP_DIR
+RUN gem install bundler
 RUN bundle config build.nokogiri --use-system-libraries
+RUN bundle install --no-deployment --quiet --path vendor/bundle
+RUN yarn install --check-files
+COPY ./ $APP_DIR
 
-ENTRYPOINT [ \
+# Authorize SSH Host
+# RUN mkdir -p /root/.ssh && \
+#     chmod 0700 /root/.ssh
+# COPY ./config/ssh/id_rsa_docker /root/.ssh/
+# RUN chmod 600 /root/.ssh/id_rsa_docker
+
+# to deploy via capistrano, you need to run the below command in the container.
+# $ eval $(ssh-agent)
+# $ ssh-add /root/.ssh/id_rsa_docker
+
+CMD [ \
+    "prehook", "rm /app/tmp/pids/server.pid" \
     "prehook", "ruby -v", "--", \
-    "prehook", "bundle install -j3 --quiet", "--"]
+    "prehook", "bundle install -j3 --quiet --path vendor/bundle", "--"]

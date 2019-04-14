@@ -4,13 +4,14 @@ services:
     build:
       context: .
       dockerfile: "Dockerfile.dev"
-    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    command: /bin/sh -c "rm -f tmp/pids/server.pid && bundle exec rails s -p 3000 -b '0.0.0.0'"
     env_file:
       - "./.env.dev"
     volumes:
       - ".:/app"
     volumes_from:
       - data
+      - bundle
     ports:
       - "3000:3000"
     depends_on:
@@ -19,30 +20,32 @@ services:
     stdin_open: true
   webpack:
     <<: *app_base
-    command: "bin/webpack-dev-server"
+    command: bash -c "rm -rf /app/public/packs; /app/bin/webpack-dev-server"
     ports:
       - "3035:3035"
     depends_on:
       - rails
     tty: false
     stdin_open: false
-  db:
-    image: "postgres:10.3"
-    environment:
-      - "POSTGRES_USER=postgres"
-      - "POSTGRES_PASSWORD=password"
-    volumes_from:
-      - data
-    ports:
-      - "5432:5432"
+  bundle:
+    # TODO: rename the below image name.
+    image: image_rails
+    volumes:
+      - /app/vendor/bundle
   data:
     image: "busybox"
     volumes:
-      - "db:/var/lib/postgresql/data"
-      - "bundle:/usr/local/bundle"
-
-volumes:
+      # TODO: create shared_docker directory
+      - "/your_home_directory/shared_docker/mysql/5.7:/var/lib/mysql/data"
   db:
-    driver: local
-  bundle:
-    driver: local
+    image: mysql:5.7
+    restart: always
+    environment:
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: password
+      #MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes_from:
+      - data
+    command: --innodb-use-native-aio=0 --ignore-db-dir=data
